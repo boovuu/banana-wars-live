@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="sr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Banana Wars — pozivnica</title><style>
+body{font-family:system-ui;max-width:680px;margin:24px auto;padding:0 16px;line-height:1.5;color:#1a1a1a}
+h1,h2{color:#7a5c10}
+.blk{position:relative;margin:12px 0}
+.blk button{position:absolute;top:6px;right:6px;padding:6px 12px;border-radius:8px;border:1px solid #888;background:#ffd93d;font-weight:700;cursor:pointer}
+.blk pre{background:#f6f6f2;border:1px solid #ddd;border-radius:10px;padding:14px 14px 44px;overflow-x:auto;font-size:13px;white-space:pre-wrap}
+#status{font-size:14px;opacity:.75}
+hr{border:0;border-top:2px dashed #d8c98a}
+.li{margin-left:14px}
+</style></head><body>
+<h1>🍌 Banana Wars — pozivnica</h1>
+<p id="status">Tražim trenutni server…</p>
+<h2>1) Osoba koja hoće da igra — nalepi ovaj blok u svoj ChatGPT/Claude/Codex</h2>
+<div class="blk"><button onclick="cp(this)"> Kopiraj </button><pre id="b1"></pre></div>
+<h2>2) Bogdan — nalepi u svog agenta kad dobiješ match_id i join_code</h2>
+<div class="blk"><button onclick="cp(this)"> Kopiraj </button><pre id="b2"></pre></div>
+<h2>3) Igranje poteza (obe strane)</h2>
+<div class="blk"><button onclick="cp(this)"> Kopiraj </button><pre id="b3"></pre></div>
+<p class="li">Vetar se menja svaki potez · štit blokira 40% · karta se igra uz akciju (use_card) · 24h ćutanja = poraz.</p>
+<script>
+const B1 = `Poveži se na Banana Wars MCP server:
+URL: __URL__/mcp   (Streamable HTTP, bez ključa)
+
+Kad se povežeš, pozovi create_match sa:
+- p1_name: "IME_OSOBE"
+- sandbox: false
+
+Vrati mi TAČNO: 1. match_id  2. join_code  3. spectator_url
+Čekaj potvrdu da je protivnik ušao. Token i join_code ne pokazuj nikome.`;
+const B2 = `Poveži se na Banana Wars MCP server:
+URL: __URL__/mcp   (Streamable HTTP, bez ključa)
+
+Zatim pozovi join_match sa:
+- match_id: (ubaci primljeni)
+- join_code: (ubaci primljeni)
+- name: "Bogdan"
+Sačuvaj svoj token. Javi kad si ušao.`;
+const B3 = `Moj Banana Wars meč: (match_id). Strategija: gađaj direktno, štit čuvaj za ispod 40 HP, kartu igraj samo ako pojačava damage.
+
+Svaki potez: observe_match → ako sam na potezu: submit_action sa fresh action_id i expected_version iz observe (throw/move/shield + use_card ako kartа pasuje). Ako nije moj potez: javi stanje (HP, vetar, ko čeka). Posle poteza reci šta je palо i šteta.`;
+function cp(b){const t=b.parentElement.querySelector('pre').textContent;
+navigator.clipboard.writeText(t).then(()=>{b.textContent=' ✓ Kopirano';setTimeout(()=>b.textContent=' Kopiraj ',1600)})}
+(async()=>{
+  let u='';
+  for (const f of ['LIVE-URL.txt','LIVE-URL-ALT.txt']) {
+    try { const r = await fetch(f, {cache:'no-store'}); const t = (await r.text()).trim();
+      if (t && !t.includes('<')) { const h = await fetch(t + '/healthz'); if (h.ok) { u = t; break; } } } catch(e){}
+  }
+  document.getElementById('status').textContent = u
+    ? ('Server: ' + u.replace('https://',''))
+    : 'Server trenutno nije dostupan — javite domaćinu.';
+  for (const id of ['b1','b2','b3'])
+    document.getElementById(id).textContent = document.getElementById(id).textContent
+      .length ? document.getElementById(id).textContent : '';
+  document.getElementById('b1').textContent = B1.replaceAll('__URL__', u || '<SERVER>');
+  document.getElementById('b2').textContent = B2.replaceAll('__URL__', u || '<SERVER>');
+  document.getElementById('b3').textContent = B3;
+})();
+</script></body></html>
