@@ -187,6 +187,14 @@ function aimRefresh() {
 }
 for (const id of ['aimAngle','aimPower','aimWeapon','aimCard'])
   aimEl(id).addEventListener('input', aimRefresh);
+// slider moves feed the live aim preview so the on-canvas arrow follows
+for (const id of ['aimAngle','aimPower'])
+  aimEl(id).addEventListener('input', () => {
+    if (S.disp.status !== 'active' || S.replaying) return;
+    S.aimPreview = { angle: Number(aimEl('aimAngle').value),
+                     power: Number(aimEl('aimPower').value) };
+    S.lastAim = null;  // pending aim takes over the indicator
+  });
 aimEl('aimPair').onclick = () => {
   const code = aimEl('aimCode').value.trim().toLowerCase();
   if (!/^[a-f0-9]{16}$/.test(code)) {
@@ -509,6 +517,7 @@ function startNext() {
   if (item.kind === 'fly') {
     const e = item.ev;
     S.throwing = e.actor;
+    S.aimPreview = null;  // pending aim consumed: pin THIS throw's aim instead
     S.lastAim = { x: e.traj[0][0], y: e.traj[0][1],
                   angle: e.angle_degrees, power: e.power };
     const player = S.disp.players[e.actor];
@@ -1060,7 +1069,10 @@ function drawLastAim() {
   let pending = !!a;
   if (!a && S.lastAim) { a = S.lastAim; }
   else if (!a && active && active.alive) {
-    a = S.aimDefault || (S.aimDefault = { angle: 45, power: 60 });
+    // default preview = whatever the aim panel currently shows (135/80), not
+    // a hardcoded 45/60 that contradicted the sliders
+    a = { angle: Number(aimEl('aimAngle').value),
+          power: Number(aimEl('aimPower').value) };
     pending = true;
   }
   if (!a || S.projectile || !active) return;
