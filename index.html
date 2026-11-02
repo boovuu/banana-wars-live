@@ -126,7 +126,10 @@
     </div>
     <p class="aim-hint">Preview is approximate and does not predict terrain collisions. The server decides the shot.</p>
     <div id="aimStatus" role="status">Pair to synchronize your angle and power with GPT.</div>
-    <button id="aimSave" class="primary">Send aim to GPT</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button id="aimSave" class="primary">Send aim to GPT</button>
+      <button id="aimCopyPrompt" title="Copy a paste-ready prompt so your AI fires this exact shot">📋 Copy shot prompt</button>
+    </div>
   </section>
   <div class="bottom">
     <div class="log" id="log"></div>
@@ -1389,6 +1392,31 @@ document.getElementById('copyPrompt').onclick = async () => {
   try { await navigator.clipboard.writeText(txt); }
   catch (e) { window.prompt('Copy this prompt:', txt); }
   btn.textContent = '✓ Copied'; setTimeout(() => btn.textContent = '📋 Prompt', 1800);
+};
+// aim panel: copy a paste-ready prompt that makes the player's AI fire the
+// EXACT aimed shot (angle/power/weapon/card) with correct MCP discipline
+document.getElementById('aimCopyPrompt').onclick = async () => {
+  const o = S.obs;
+  const btn = document.getElementById('aimCopyPrompt');
+  const reset = () => btn.textContent = '📋 Copy shot prompt';
+  if (!o || o.status !== 'active') {
+    btn.textContent = 'no live match'; setTimeout(reset, 1500);
+    return;
+  }
+  const v = aimValues();
+  const p = o.players[o.active_player];
+  const url = (AB || location.origin) + '/?match=' + o.match_id;
+  const useCard = v.use_card && o.card ? ', "use_card": true' : '';
+  const txt =
+    `🍌 Banana Wars — fire this exact shot for ${p.name} in match ${o.match_id} (turn ${o.turn_no}).\n` +
+    `1) Call observe_match ${o.match_id}; use its version as expected_version and confirm it is ${p.name}'s turn.\n` +
+    `2) Call submit_action with a FRESH action_id and that expected_version:\n` +
+    `{ "type": "throw", "weapon": "${v.weapon}", "angle_degrees": ${v.angle_degrees}, "power": ${v.power}${useCard} }\n` +
+    `Keep the angle and power exactly as written. If it is not ${p.name}'s turn, do nothing and tell me.\n` +
+    `Watch the shot: ${url}`;
+  try { await navigator.clipboard.writeText(txt); }
+  catch (e) { window.prompt('Copy this prompt:', txt); }
+  btn.textContent = '✓ Copied'; setTimeout(reset, 1800);
 };
 // first-match guide toggle
 document.getElementById('helpBtn').onclick = () => {
