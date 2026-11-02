@@ -7,19 +7,22 @@
 <style>
   :root { --p1:#e0654a; --p2:#7286d6; --ink:#1c2333; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,'Segoe UI',Roboto,sans-serif; background:#12182b; color:#f2f5ff; }
+  body { margin:0; font-family:"Courier New",ui-monospace,monospace; background:#0d0a1e; color:#f2f5ff; }
   .wrap { max-width:920px; margin:0 auto; padding:10px 14px 30px; }
   header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:6px 0 10px; }
-  h1 { font-size:22px; margin:0; letter-spacing:1px; }
-  h1 small { font-weight:400; opacity:.6; font-size:12px; }
+  h1 { font-size:22px; margin:0; letter-spacing:2px; color:#ffe89a;
+       text-shadow:2px 2px 0 #b3541e, 4px 4px 0 #141821; }
+  h1 small { font-weight:400; opacity:.6; font-size:12px; text-shadow:none; letter-spacing:0; }
   .controls { margin-left:auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
-  button, select { background:#232d4d; color:#f2f5ff; border:1px solid #39466f; border-radius:8px;
-    padding:6px 10px; font-size:13px; cursor:pointer; }
+  button, select { background:#232d4d; color:#f2f5ff; border:1px solid #39466f; border-radius:0;
+    padding:6px 10px; font-size:13px; cursor:pointer; font-family:inherit;
+    box-shadow:3px 3px 0 #141821; }
   button:hover { background:#2e3a63; }
   button.primary { background:#f5b431; border-color:#f5b431; color:#1c2333; font-weight:700; }
   button.on { outline:2px solid #f5b431; }
   button:focus-visible, select:focus-visible { outline:2px solid #ffe29a; outline-offset:3px; }
-  canvas { width:100%; border-radius:12px; display:block; }
+  canvas { width:100%; display:block; image-rendering:pixelated;
+    border:4px solid #39466f; box-shadow:0 0 0 4px #141821, 0 14px 40px rgba(0,0,0,.55); }
   .banner { min-height:26px; font-size:15px; font-weight:600; padding:6px 2px; }
   .cards { display:flex; gap:10px; margin-top:8px; }
   .card { flex:1; background:#1a2138; border:1px solid #2c3860; border-radius:12px; padding:10px 12px; }
@@ -66,7 +69,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>🍌 BANANA WARS <small>agents at war · humans watching</small></h1>
+    <h1>🍌 BANANA WARS <small>retro agents at war · humans watching</small></h1>
     <div class="controls">
       <select id="matchSel"></select>
       <button id="spd1" class="on">1×</button>
@@ -159,6 +162,12 @@ const S = {
   lastVersionAt: performance.now(), replaying: false,
   projectile: null, boom: null, pops: [], throwing: null,
   finishedAt: 0, lastUserAction: 0,
+  feed: [],        // on-canvas play feed, newest last, max 5
+  cardFx: null,    // {mode: reveal|used|lapse, card, t0}
+  lastAim: null,   // {x, y, angle, power} of the most recent throw
+  aimPreview: null,   // {angle, power} live drag/slide aim for the active player
+  dragging: null,     // {x0, y0} canvas drag origin while aiming
+  pendingCard: null,  // last dealt card, shown persistently until next draw
 };
 const AIM = { code:'', player:null, saving:false };
 const aimEl = id => document.getElementById(id);
@@ -233,6 +242,12 @@ let AB = (() => {
 
 async function api(path, opts) {
   try {
+    opts = opts || {};
+    // ngrok free serves an interstitial page to browser UAs; this header
+    // (allowed by the server's CORS preflight) keeps API calls through the
+    // public tunnel clean for spectators on the GitHub Pages viewer.
+    opts.headers = Object.assign({'ngrok-skip-browser-warning': '1'},
+                                 opts.headers || {});
     const r = await fetch(AB + path, opts);
     return await r.json();
   } catch (e) { return null; }
@@ -266,21 +281,21 @@ function boomSound(strength) {
     audioContext();
     strength = Math.max(0, Math.min(1, strength));
     const t = AC.currentTime;
+    // chiptune boom: pitch-dropping square + noise crack, 8-bit style
     const o = AC.createOscillator(), g = AC.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(120, t);
-    o.frequency.exponentialRampToValueAtTime(38, t + 0.25);
-    g.gain.setValueAtTime(Math.min(0.5, 0.2 + strength * 0.4), t);
+    o.type = 'square';
+    o.frequency.setValueAtTime(220, t);
+    o.frequency.exponentialRampToValueAtTime(52, t + 0.3);
+    g.gain.setValueAtTime(Math.min(0.34, 0.12 + strength * 0.26), t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
     o.connect(g).connect(AC.destination);
     o.start(t); o.stop(t + 0.45);
-    // A short filtered crack makes the impact distinct from the bass tail.
     const buffer = AC.createBuffer(1, Math.floor(AC.sampleRate * 0.16), AC.sampleRate);
     const samples = buffer.getChannelData(0);
     for (let i = 0; i < samples.length; i++) samples[i] = Math.random() * 2 - 1;
     const noise = AC.createBufferSource(), filter = AC.createBiquadFilter(), ng = AC.createGain();
-    noise.buffer = buffer; filter.type = 'lowpass'; filter.frequency.value = 700 + strength * 900;
-    ng.gain.setValueAtTime(0.06 + strength * 0.11, t);
+    noise.buffer = buffer; filter.type = 'lowpass'; filter.frequency.value = 600 + strength * 800;
+    ng.gain.setValueAtTime(0.06 + strength * 0.1, t);
     ng.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
     noise.connect(filter).connect(ng).connect(AC.destination);
     noise.start(t); noise.stop(t + 0.17);
@@ -445,6 +460,9 @@ async function pollMatch() {
   if (S.firstSync) {
     S.firstSync = false;
     applyTarget();
+    // joining mid-match: reveal the pending card so the draw is never invisible
+    if (o.card) { S.cardFx = { mode: 'reveal', card: o.card, t0: performance.now() };
+                  S.pendingCard = o.card; }
     const h = await api('/api/match/' + S.matchId + '/history');
     S.lastSeq = h.events.length ? h.events[h.events.length - 1].seq : 0;
     logLine(`📺 Watching ${o.players.p1.name} vs ${o.players.p2.name} (match ${o.match_id})`);
@@ -464,7 +482,7 @@ async function pollMatch() {
     const live = (list && list.matches || []).find(m => m.status === 'active');
     if (live && live.match_id !== S.matchId) {
       logLine('➡️ new fight starting — switching over');
-      location.href = '/?match=' + live.match_id;
+      location.href = location.pathname + '?match=' + live.match_id;
       return;
     }
   }
@@ -491,6 +509,8 @@ function startNext() {
   if (item.kind === 'fly') {
     const e = item.ev;
     S.throwing = e.actor;
+    S.lastAim = { x: e.traj[0][0], y: e.traj[0][1],
+                  angle: e.angle_degrees, power: e.power };
     const player = S.disp.players[e.actor];
     if (player && e.weapon === 'heavy') player.ammo = Math.max(0, player.ammo - 1);
     S.projectile = { traj: e.traj, t: 0,
@@ -519,8 +539,12 @@ function finishItem(item, instant) {
       if ((e.kills || []).length) tickSound();
       const dparts = Object.entries(e.damages || {}).map(([p, d]) => `${pname(p)} −${d}`);
       logLine(`T${S.disp.turn} 💥 ${dparts.length ? dparts.join(', ') : 'terrain only'}`);
+      if (dparts.length) pushFeed(`💥 ${dparts.join(' ')}`);
+      else pushFeed('💨 terrain only');
+      if (e.cluster) pushFeed(`🅎 cluster ×${e.cluster}`);
     } else {
       logLine(`T${S.disp.turn} 💨 ${pname(item.actor)} threw it out of bounds`);
+      pushFeed(`💨 ${pname(item.actor)} out of bounds`);
     }
   }
   if (item.kind === 'turn' && e.wind !== undefined) {
@@ -536,12 +560,14 @@ function finishItem(item, instant) {
     logLine(`T${S.disp.turn} 🏃 ${pname(e.actor)} moved ${Math.round(e.moved)}px` +
             (stopped ? ' (stopped)' : ''));
     if (stopped) addPop(S.disp.players[e.actor], 'stopped', '#ffd94a');
+    pushFeed(`🏃 ${pname(e.actor)} moved ${Math.round(e.moved)}px`);
   }
   if (item.kind === 'regen') {
     const p = S.disp.players[e.actor];
     if (p) { p.hp = e.hp; p.alive = e.hp > 0; }
     if (e.amount > 0) addPop(p, `+${Math.round(e.amount)}`, '#7dff9a');
     logLine(`T${evTurn(e)} 💚 ${pname(e.actor)} regenerates +${Math.round(e.amount)} (${Math.round(e.hp)}hp)`);
+    pushFeed(`💚 ${pname(e.actor)} regen +${Math.round(e.amount)}`);
   }
   if (item.kind === 'shield') {
     const p = S.disp.players[e.actor];
@@ -551,17 +577,36 @@ function finishItem(item, instant) {
       if (!e.card_id || !e.card_id.startsWith('extra_shield')) p.shield.uses_left = Math.max(0, p.shield.uses_left - 1);
     }
     logLine(`T${S.disp.turn} 🛡 ${pname(e.actor)} raised the shield`);
+    pushFeed(`🛡 ${pname(e.actor)} shields`);
   }
   if (item.kind === 'card') {
     S.disp.card = e.card;
+    S.pendingCard = e.card;
+    S.cardFx = { mode: 'reveal', card: e.card, t0: performance.now() };
     logLine(`T${e.turn_no} 🃏 ${pname(e.actor)} draws ${e.card.name} — ${e.card.description}`);
+    pushFeed(`🃏 ${e.card.name} → ${pname(e.actor)}`);
   }
   if (item.kind === 'note') {
-    if (e.type === 'card_used') logLine(`🃏 ${pname(e.actor)} plays ${e.card_name}`);
-    else if (e.type === 'card_lapse') logLine(`🃏 ${e.card_name} lapses unused`);
+    if (e.type === 'card_used') {
+      logLine(`🃏 ${pname(e.actor)} plays ${e.card_name}`);
+      pushFeed(`🃏 ${pname(e.actor)} plays ${e.card_name}`);
+      if (S.cardFx && S.cardFx.card && S.cardFx.card.name === e.card_name)
+        S.cardFx = { ...S.cardFx, mode: 'used', t0: performance.now() };
+    }
+    else if (e.type === 'card_lapse') {
+      logLine(`🃏 ${e.card_name} lapses unused`);
+      pushFeed(`🃏 ${e.card_name} lapses`);
+      if (S.cardFx && S.cardFx.card && S.cardFx.card.name === e.card_name)
+        S.cardFx = { ...S.cardFx, mode: 'lapse', t0: performance.now() };
+    }
     else if (e.type === 'heal') {
       const p = S.disp.players[e.actor]; if (p) p.hp = e.hp;
       logLine(`💚 ${pname(e.actor)} heals ${e.amount} (hp ${e.hp})`);
+      pushFeed(`💚 ${pname(e.actor)} +${Math.round(e.amount)}`);
+    }
+    if (e.type === 'regen') {
+      // regen arrives as a note in some replays
+      pushFeed(`💚 ${pname(e.actor)} regen`);
     }
   }
   if (item.kind === 'swap') {
@@ -585,18 +630,491 @@ function addPop(p, text, color) {
   S.pops.push({ x: p.x, y: p.y - 44, text, color, t: 0 });
 }
 
+// on-canvas play feed: compact chips, newest last, 5 max
+function pushFeed(text) {
+  S.feed.push({ text, t0: performance.now() });
+  S.feed = S.feed.slice(-5);
+}
+
 // ---------------------------------------------------------------- drawing
+// [pixel-art] Retro render layer. All cosmetic; authoritative state lives in
+// S.disp / S.obs and is untouched. Reduced-motion and skip guards unchanged.
+// A world pixel = PW x PW screen px, drawn on the 2x-scaled backing canvas.
+const PW = 4;
+// --- tiny seeded RNG so decor is stable per match seed (no flicker)
+function pxRng(seed) {
+  let s = (seed >>> 0) || 1;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+// --- procedural sprite builder: a string-grid + palette -> offscreen canvas
+function makeSprite(rows, palette) {
+  const w = rows[0].length, h = rows.length;
+  const c = document.createElement('canvas');
+  c.width = w * PW; c.height = h * PW;
+  const g = c.getContext('2d');
+  for (let r = 0; r < h; r++)
+    for (let q = 0; q < w; q++) {
+      const ch = rows[r][q];
+      if (ch === '.' || ch === ' ') continue;
+      g.fillStyle = palette[ch];
+      g.fillRect(q * PW, r * PW, PW, PW);
+    }
+  return c;
+}
+const PX = { // sprite cache, keyed by variant
+  gorilla: {}, hills: null, skyBands: null, sun: null,
+};
+function pxText(text, x, y, color, align) {
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.textAlign = align || 'left';
+  ctx.fillStyle = '#141821';
+  ctx.fillText(text, x + 2, y + 2);      // hard 90s drop shadow
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+function buildScenery() {
+  const rnd = pxRng(S.obs ? (S.obs.seed || 1) : 1);
+  // banded retro sky instead of a smooth gradient
+  const bands = ['#ffd9a0', '#ffc98e', '#ffb27d', '#ff9d85', '#e98a9b', '#b97aa9', '#8a6fb0', '#5c64b8'];
+  const skyC = document.createElement('canvas');
+  skyC.width = W; skyC.height = H;
+  const g = skyC.getContext('2d');
+  const bh = Math.ceil(H / bands.length);
+  bands.forEach((col, i) => { g.fillStyle = col; g.fillRect(0, i * bh, W, bh + 1); });
+  // pixel sun with a lighter core, top right
+  g.fillStyle = '#ffe89a'; g.fillRect(896, 36, 68, 68);
+  g.fillStyle = '#fff7d6'; g.fillRect(904, 44, 52, 52);
+  g.fillStyle = '#ffffff'; g.fillRect(916, 56, 28, 28);
+  // two terraced parallax hill layers
+  const hill = (base, amp, step, col, top) => {
+    g.fillStyle = col;
+    let y = base;
+    for (let x = 0; x < W; x += step) {
+      y = base - Math.round((Math.sin(x * 0.004 + rnd() * 0.5) + Math.sin(x * 0.011)) * amp);
+      const hgt = H - y;
+      g.fillRect(x, y, step, hgt);
+      g.fillStyle = top; g.fillRect(x, y, step, PW * 2); // lighter ridge cap
+      g.fillStyle = col;
+    }
+  };
+  hill(H * 0.52, 46, 56, '#6d4d9c', '#8a63b8');
+  hill(H * 0.66, 30, 48, '#553a7e', '#6d4d9c');
+  PX.skyBands = skyC;
+}
+
+function cloud(x, y, s) {
+  // chunky 3-lobe pixel cloud, cached at unit scale
+  const key = 'c' + s;
+  if (!PX.gorilla[key]) {
+    PX.gorilla[key] = makeSprite([
+      '......WWWW......',
+      '....WWWWWWWW....',
+      '..WWWWWWWWWWWW..',
+      '.WWWWWWWWWWWWWW.',
+      'WWWWWWWWWWWWWWWW',
+      '.WWWWWWWWWWWWWW.',
+    ], { W: 'rgba(255,244,230,.92)' });
+  }
+  const sp = PX.gorilla[key];
+  ctx.drawImage(sp, Math.round(x / s), Math.round(y / s), sp.width * s, sp.height * s);
+}
+
+function drawGorilla(p, color, pid) {
+  const x = p.x, y = p.y;
+  ctx.save();
+  const hit = FX.hits[pid];
+  if (hit && !FX.reduced && p.alive) {
+    const pulse = Math.sin((1 - hit.remaining / hit.total) * Math.PI);
+    ctx.translate(x, y); ctx.scale(1 + pulse * 0.14, 1 - pulse * 0.12); ctx.translate(-x, -y);
+  }
+  if (!p.alive) { ctx.translate(x, y); ctx.rotate(Math.PI / 2); ctx.translate(-x, -y); }
+  // shield: dithered pixel dome
+  if (p.shield && p.shield.active) {
+    const rows = [];
+    const R = 8;
+    for (let r = 0; r < R; r++) {
+      let line = '';
+      for (let c = -R; c <= R; c++) {
+        const d = Math.sqrt(c * c + (R - r) * (R - r));
+        line += (d <= R && (c + r) % 2 === 0) ? '#' : '.';
+      }
+      rows.push(line);
+    }
+    ctx.drawImage(makeSpriteCache(rows, 'S'), x - R * PW, y - 15 - R * PW);
+  }
+  // sprite: feet at the bottom row, anchored to (x, y); p1 faces right, p2 left
+  // drawn at 1.5x: big enough to read the face, small enough to stay in bounds
+  const GS = 1.5;
+  const facing = pid === 'p1' ? 1 : -1;
+  const sp = gorillaSprite(pid);
+  ctx.save();
+  ctx.translate(x, y);
+  if (facing === -1) ctx.scale(-1, 1);
+  ctx.drawImage(sp, -sp.width * GS / 2, -sp.height * GS + 2,
+                sp.width * GS, sp.height * GS);
+  ctx.restore();
+  // name + hp in outlined retro font (kept upright even when KO'd)
+  pxText(`${p.name} ${Math.round(p.hp)}hp`, x, y - sp.height * GS - 8, '#fff4e0', 'center');
+  if (p.alive && p.ammo > 0) pxText('🍌'.repeat(p.ammo), x, y - sp.height * GS - 20, '#fff4e0', 'center');
+  ctx.restore();
+}
+
+// cache the gorilla body per pid so throw-pose changes don't rebuild every frame
+const GOR_CACHE = {};
+function gorillaSprite(pid) {
+  const throwing = S.throwing === pid;
+  const key = pid + (throwing ? '-t' : '');
+  if (GOR_CACHE[key]) return GOR_CACHE[key];
+  const c = pcolor(pid);
+  const dark = pid === 'p1' ? '#a33f2e' : '#4f61ad';
+  const pal = { B: c, D: dark, K: '#1e1410', F: '#f5d7b9',
+                W: '#ffffff', E: '#191419', M: '#aa3c32' };
+  // B=body D=dark K=outline F=face-plate W=eye-white E=pupil M=muzzle/nostrils
+  // v7 BOLD anatomy: big head, thick brow, 2x2 eyes, muzzle plate — survives
+  // scanlines and small scale (previous thin features read as one eye)
+  const idle = [
+    '.....KKBBBBBBBBBBKK.....',
+    '.....KBBBBBBBBBBBBK.....',
+    '.....KBDDDDDDDDDDBK.....',
+    '.....KBBWWBBBBWWBBK.....',
+    '.....KBBEEBDDBEEBBK.....',
+    '.....KBBBBFFFFBBBBK.....',
+    '.....KBBBBFMMFBBBBK.....',
+    '..KKKKKKKBBBBBBKKKKKKK..',
+    '.KKBBBBBBBBBBBBBBBBBBKK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KKKKBBBBBBKKBBBBBBKKKK.',
+    '....KBBBBBBKKBBBBBBK....',
+    '...KKBBBBBBKKBBBBBBKK...',
+    '...KDDDDDDDKKDDDDDDDK...',
+  ];
+  // throw pose: fists raised high at the sides
+  const armsUp = [
+    'KDDDK..............KDDDK',
+    'KDDDK.KKKKKKKKKKKK.KDDDK',
+    'KKKKKKKBBBBBBBBBBKKKKKKK',
+    'KKKKKKBBBBBBBBBBBBKKKKKK',
+    'KDDDKKBDDDDDDDDDDBKKDDDK',
+    'KDDDKKBBWWBBBBWWBBKKDDDK',
+    'KDDDKKBBEEBBBBEEBBKKDDDK',
+    'KKKKKKBBBBFFFFBBBBKKKKKK',
+    '..KKKKBBBBBMMBBBBBKKKK..',
+    '.KKBBBBBBBBBBBBBBBBBBKK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KDDDBBBBBBBBBBBBBBDDDK.',
+    '.KKKKBBBBBBKKBBBBBBKKKK.',
+    '....KBBBBBBKKBBBBBBK....',
+    '...KKBBBBBBKKBBBBBBKK...',
+    '...KDDDDDDDKKDDDDDDDK...',
+  ];
+  return (GOR_CACHE[key] = makeSprite(throwing ? armsUp : idle, pal));
+}
+
+function makeSpriteCache(rows, key) {
+  if (!PX.gorilla[key]) PX.gorilla[key] = makeSprite(rows, { '#': 'rgba(120,215,255,.85)' });
+  return PX.gorilla[key];
+}
+
+function drawProjectile() {
+  const pr = S.projectile;
+  const idx = Math.min(pr.traj.length - 1,
+    Math.floor(pr.t * pr.traj.length));
+  const [x, y] = pr.traj[idx];
+  // trail: chunky fading squares
+  ctx.fillStyle = 'rgba(255,217,74,.4)';
+  for (let i = Math.max(0, idx - 16); i < idx; i += 2) {
+    const q = pr.traj[i];
+    const sz = 2 + (i - Math.max(0, idx - 16)) * 0.18;
+    ctx.fillRect(Math.round(q[0]), Math.round(q[1]), sz, sz);
+  }
+  // aim indicator (Worms-style): dotted preview ahead of the banana
+  if (pr.aim && idx < pr.traj.length - 1) {
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    for (let i = idx + 4; i < Math.min(pr.traj.length, idx + 26); i += 3) {
+      ctx.fillRect(Math.round(pr.traj[i][0]), Math.round(pr.traj[i][1]), 3, 3);
+    }
+    // angle arrow from the launch point, length scales with power
+    const [sx, sy] = pr.traj[0];
+    const rad = -pr.aim.angle * Math.PI / 180; // y-down canvas
+    const len = 24 + pr.aim.power * 0.7;
+    const ex = sx + Math.cos(rad) * len, ey = sy + Math.sin(rad) * len;
+    ctx.strokeStyle = 'rgba(20,24,33,.85)'; ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(20,24,33,.85)';
+    ctx.save(); ctx.translate(ex, ey); ctx.rotate(rad);
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-7, 4); ctx.lineTo(-7, -4);
+    ctx.closePath(); ctx.fill(); ctx.restore();
+    pxText(Math.round(pr.aim.angle) + '° · ' + Math.round(pr.aim.power),
+           sx + 8, sy - 34, '#fff4e0');
+  }
+  // banana: 5x3 pixel crescent, rotated along velocity
+  const ahead = pr.traj[Math.min(pr.traj.length - 1, idx + 2)];
+  const ang = Math.atan2(ahead[1] - y, ahead[0] - x);
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(ang);
+  ctx.fillStyle = '#ffd94a';
+  ctx.fillRect(-8, -3, 12, 3); ctx.fillRect(-4, -5, 8, 2);
+  ctx.fillRect(-8, 0, 12, 3); ctx.fillRect(-4, 2, 8, 2);
+  ctx.fillStyle = '#ffef9e';
+  ctx.fillRect(-6, -3, 4, 2); ctx.fillRect(-6, 1, 4, 2); // shine
+  ctx.fillStyle = '#8a5a33';
+  ctx.fillRect(4, -2, 3, 4); // tip
+  ctx.restore();
+}
+
+function drawBoom() {
+  const b = S.boom;
+  const k = b.t; // 0..1
+  const ease = 1 - Math.pow(1 - k, 3);
+  const r = b.r * (0.2 + 0.85 * ease);
+  const R = Math.round(r / PW) * PW;
+  ctx.globalAlpha = 1 - k * 0.85;
+  // chunky filled pixel circles: outer orange ring, yellow core, white hot center
+  pxCircle(b.x, b.y, R, '#ff8c2e');
+  pxCircle(b.x, b.y, Math.max(PW, Math.round(R * 0.7 / PW) * PW), '#ffc93c');
+  if (k < 0.5) pxCircle(b.x, b.y, Math.max(PW, Math.round(R * 0.38 / PW) * PW), '#fff6dd');
+  ctx.globalAlpha = 1;
+}
+
+// filled pixel-block circle
+function pxCircle(cx, cy, r, color) {
+  ctx.fillStyle = color;
+  const rp = Math.max(PW, r);
+  for (let yy = -rp; yy <= rp; yy += PW) {
+    const half = Math.sqrt(rp * rp - yy * yy);
+    ctx.fillRect(Math.round((cx - half) / PW) * PW, Math.round((cy + yy) / PW) * PW,
+                 Math.round(half * 2 / PW) * PW, PW);
+  }
+}
+
+// CRT flavor: scanlines + letterbox over scenery only — skipped under the
+// sprites' rows is impossible per-pixel, so scanlines run at 25% strength
+// (was 100%-spacing over everything, which wiped 1-cell facial features).
+let crtLayer = null;
+function drawCrt() {
+  if (FX.reduced) return;
+  if (!crtLayer) {
+    crtLayer = document.createElement('canvas');
+    crtLayer.width = W; crtLayer.height = H;
+    const g = crtLayer.getContext('2d');
+    g.fillStyle = 'rgba(0,0,20,.05)';
+    for (let y = 0; y < H; y += PW * 2) g.fillRect(0, y, W, PW);
+    // CRT letterbox: soft dark strips top/bottom only (no side frames)
+    for (let i = 0; i < 5; i++) {
+      g.fillStyle = 'rgba(8,4,24,' + (0.10 - i * 0.02).toFixed(3) + ')';
+      g.fillRect(0, i * PW * 3, W, PW * 3);
+      g.fillRect(0, H - (i + 1) * PW * 3, W, PW * 3);
+    }
+  }
+  ctx.drawImage(crtLayer, 0, 0);
+}
+
+// bake sky+hills once per match seed
+let scenerySeed = null;
+function buildSceneryOnce() {
+  const seed = S.obs ? (S.obs.seed || 1) : 1;
+  if (PX.skyBands && scenerySeed === seed) return;
+  scenerySeed = seed;
+  crtLayer = null; // vignette sits on scenery colors; rebake together
+  buildScenery();
+}
+
+// pixel terrain: quantized dirt columns, grass cap, strata, seeded pebbles
+let terrainBaked = null, terrainKey = null;
+function drawTerrainPx() {
+  const t = S.disp.terrain;
+  if (!t.length) return;
+  if (terrainBaked && terrainKey === t) { ctx.drawImage(terrainBaked, 0, 0); return; }
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const rnd = pxRng((S.obs && S.obs.seed) || 1);
+  for (let x = 0; x < W; x += PW) {
+    const ti = Math.min(t.length - 1, x + (PW >> 1));
+    const y = Math.round(t[ti] / PW) * PW;
+    g.fillStyle = '#7a4a2b'; g.fillRect(x, y, PW, H - y);
+    g.fillStyle = '#5f3720'; g.fillRect(x, y + PW * 6, PW, PW * 2);
+    g.fillStyle = '#4a2a18'; g.fillRect(x, y + PW * 14, PW, PW * 3);
+    g.fillStyle = '#3fae4a'; g.fillRect(x, y - PW, PW, PW * 2);
+    g.fillStyle = '#2e8a39'; g.fillRect(x, y + PW, PW, PW);
+  }
+  for (let i = 0; i < 90; i++) {
+    const sx = Math.floor(rnd() * (W / PW)) * PW;
+    const ti = Math.min(t.length - 1, sx);
+    const depth = H - t[ti] - PW * 5;
+    if (depth <= PW) continue;
+    const sy = Math.round(t[ti] / PW) * PW + PW * 4 + Math.floor(rnd() * depth / PW) * PW;
+    g.fillStyle = rnd() > 0.5 ? '#8a5a33' : '#4a2a18';
+    g.fillRect(sx, sy, PW, PW);
+  }
+  terrainBaked = c; terrainKey = t;
+  ctx.drawImage(c, 0, 0);
+}
+
+// retro wind HUD: outlined plate + chunky arrow
+function drawWindPx(wind) {
+  const cx = W / 2, cy = 44;
+  const len = Math.min(70, Math.abs(wind) * 1.1);
+  ctx.fillStyle = 'rgba(20,24,33,.78)';
+  ctx.fillRect(cx - 46, 12, 92, 40);
+  pxText('wind ' + Math.abs(wind).toFixed(0), cx, 28, '#ffe89a', 'center');
+  if (len < 4) { pxText('·', cx, cy + 4, '#fff4e0', 'center'); return; }
+  const dir = wind >= 0 ? 1 : -1;
+  const y0 = Math.round(cy / PW) * PW;
+  ctx.fillStyle = '#fff4e0';
+  ctx.fillRect(cx - dir * len / 2, y0, len, PW * 2);
+  ctx.beginPath();
+  ctx.moveTo(cx + dir * (len / 2 + 9), y0 + PW);
+  ctx.lineTo(cx + dir * len / 2, y0 - PW * 2);
+  ctx.lineTo(cx + dir * len / 2, y0 + PW * 4);
+  ctx.closePath(); ctx.fill();
+}
+
+// on-canvas card reveal: pixel card flips up at top-left, holds, fades.
+// S.pendingCard keeps a compact persistent tile below it until the next draw.
+function drawCardFx() {
+  const fx = S.cardFx;
+  const card = S.pendingCard;
+  if (!card) return;
+  const cw = 190, ch = 64, x0 = 14, y0 = 64;
+  if (fx && fx.card) {
+    const age = performance.now() - fx.t0;
+    const HOLD = fx.mode === 'reveal' ? 2600 : 1100;
+    if (age > HOLD) { S.cardFx = null; }
+    else if (!(FX.reduced && fx.mode !== 'reveal')) {
+      // flip-in for reveal (0..300ms), fade-out at the end
+      let alpha = 1, flip = 1, tint = null;
+      if (fx.mode === 'reveal' && age < 300) flip = age / 300;
+      if (age > HOLD - 350) alpha = Math.max(0, (HOLD - age) / 350);
+      if (fx.mode === 'used') tint = 'rgba(80,220,120,.25)';
+      if (fx.mode === 'lapse') { alpha *= 0.55; tint = 'rgba(60,60,70,.3)'; }
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(x0 + cw / 2, y0 + ch / 2);
+      ctx.scale(Math.max(0.02, flip), 1);
+      ctx.translate(-(cw / 2), -(ch / 2));
+      drawCardTile(card, cw, ch, tint, fx.mode);
+      ctx.restore();
+      return; // animated card drawn; persistent tile hidden under it
+    } else { S.cardFx = null; }
+  }
+  // persistent tile: current turn card, always visible while a card is pending
+  drawCardTile(card, cw, ch, null, 'pending');
+}
+
+function drawCardTile(card, cw, ch, tint, mode) {
+  ctx.fillStyle = 'rgba(16,20,34,.92)';
+  ctx.fillRect(0, 0, cw, ch);
+  ctx.strokeStyle = mode === 'pending' ? '#8f9bc4' : '#f5b431';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(1.5, 1.5, cw - 3, ch - 3);
+  if (tint) { ctx.fillStyle = tint; ctx.fillRect(0, 0, cw, ch); }
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillStyle = '#ffe89a';
+  ctx.fillText(card.name, 10, 24);
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#e8edff';
+  ctx.fillText(card.description.slice(0, 34), 10, 44);
+  ctx.fillStyle = '#8f9bc4';
+  ctx.fillText((mode === 'reveal' ? 'drawn for ' : mode === 'pending' ? 'this turn: ' : '') +
+               (card.category || 'card') + (mode === 'used' ? ' — PLAYED' :
+               mode === 'lapse' ? ' — lapsed' : ''), 10, 57);
+}
+
+// last-5 play feed, top-left under the card reveal
+function drawFeed() {
+  if (!S.feed.length) return;
+  const now = performance.now();
+  const x0 = 14, y0 = 8;
+  ctx.save();
+  ctx.font = '12px "Courier New", monospace';
+  ctx.textAlign = 'left';
+  S.feed.forEach((f, i) => {
+    const age = now - f.t0;
+    const alpha = Math.max(0.45, 1 - age / 30000);
+    ctx.globalAlpha = alpha;
+    const w = f.text.length * 7.6 + 22;   // monospace + emoji estimate, stub-safe
+    ctx.fillStyle = 'rgba(16,20,34,.8)';
+    ctx.fillRect(x0, y0 + i * 22, w, 19);
+    ctx.fillStyle = i === S.feed.length - 1 ? '#ffe89a' : '#c9d4f5';
+    ctx.fillText(f.text, x0 + 8, y0 + i * 22 + 14);
+  });
+  ctx.restore();
+}
+
+// aim indicator: ALWAYS visible on the active gorilla. Shows the pending aim
+// (drag or defaults) at full strength; the previous throw's aim stays pinned,
+// faded, until the first new aim input replaces it.
+function drawLastAim() {
+  const active = S.disp.active && S.disp.status === 'active' ? S.disp.players[S.disp.active] : null;
+  let a = S.aimPreview;
+  let pending = !!a;
+  if (!a && S.lastAim) { a = S.lastAim; }
+  else if (!a && active && active.alive) {
+    a = S.aimDefault || (S.aimDefault = { angle: 45, power: 60 });
+    pending = true;
+  }
+  if (!a || S.projectile || !active) return;
+  const isPending = pending;
+  const fade = isPending ? 1 : 0.5;
+  const x = isPending ? active.x : a.x;
+  const y = isPending ? active.y : a.y;
+  const rad = -a.angle * Math.PI / 180;
+  const len = 24 + a.power * 0.9;
+  const ex = x + Math.cos(rad) * len, ey = y + Math.sin(rad) * len;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  // power gauge: thick bar along the aim line, color-shifts with power
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = a.power > 80 ? '#ff7a5c' : a.power > 55 ? '#ffd94a' : '#9fe08a';
+  ctx.lineWidth = 5;
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.setLineDash([]);
+  // arrowhead
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.save(); ctx.translate(ex, ey); ctx.rotate(rad);
+  ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-7, 6); ctx.lineTo(-7, -6);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+  // big readable angle/power label
+  pxText(Math.round(a.angle) + '°  ⇢  ' + Math.round(a.power),
+         x, y - 92, isPending ? '#ffe89a' : '#e8d9a0', 'center');
+  // power ticks along an arc for a quick visual read
+  for (let t = 10; t <= 100; t += 10) {
+    const tl = 24 + t * 0.9;
+    const tx = x + Math.cos(rad) * tl, ty = y + Math.sin(rad) * tl;
+    ctx.globalAlpha = fade * (t <= a.power ? 0.95 : 0.3);
+    ctx.fillStyle = '#fff4e0';
+    ctx.fillRect(tx - 2, ty - 2, 4, 4);
+  }
+  ctx.restore();
+}
+
 function draw() {
-  // sky
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#8fd3ff'); sky.addColorStop(1, '#eaf7ff');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-  // sun + clouds
-  ctx.fillStyle = '#fff3b0'; ctx.beginPath(); ctx.arc(660, 70, 34, 0, 7); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  buildSceneryOnce();
+  // sky: banded sunset + pixel sun + terraced hills, all pre-baked
+  ctx.drawImage(PX.skyBands, 0, 0);
+  // drifting pixel clouds
   const cloudTime = FX.reduced ? 10000 : performance.now();
-  cloud((cloudTime / 90) % (W + 240) - 120, 60, 1);
-  cloud((cloudTime / 130 + 400) % (W + 240) - 120, 110, 0.7);
+  cloud((cloudTime / 90) % (W + 240) - 120, 46, 1);
+  cloud((cloudTime / 130 + 400) % (W + 240) - 120, 96, 0.7);
 
   // Shake only the rendered world. Wind, HUD, physics and authoritative positions stay fixed.
   ctx.save();
@@ -604,29 +1122,16 @@ function draw() {
     const amplitude = 4 * FX.trauma * FX.trauma;
     ctx.translate(Math.sin(FX.time * 0.047) * amplitude, Math.sin(FX.time * 0.061) * amplitude * 0.7);
   }
-  // terrain
-  const t = S.disp.terrain;
-  if (t.length) {
-    ctx.beginPath();
-    ctx.moveTo(0, H);
-    for (let i = 0; i < t.length; i++) ctx.lineTo(i, t[i]);
-    ctx.lineTo(W, H); ctx.closePath();
-    ctx.fillStyle = '#8a5a33'; ctx.fill();
-    ctx.beginPath();
-    for (let i = 0; i < t.length; i++) {
-      const y = t[i];
-      i ? ctx.lineTo(i, y) : ctx.moveTo(0, y);
-    }
-    ctx.strokeStyle = '#58c24c'; ctx.lineWidth = 5; ctx.stroke();
-  }
-
+  // terrain: dirt fill + grass cap + strata speckles, baked per terrain shape
+  drawTerrainPx();
+  // ghost of the previous throw's aim, under the players
+  drawLastAim();
   // players
   for (const pid of ['p1', 'p2']) {
     const p = S.disp.players[pid];
     if (!p) continue;
     drawGorilla(p, pcolor(pid), pid);
   }
-
   // projectile + trail
   if (S.projectile) drawProjectile();
   // explosion
@@ -634,20 +1139,22 @@ function draw() {
   for (const particle of FX.particles) {
     ctx.globalAlpha = Math.max(0, 1 - particle.age / particle.life);
     ctx.fillStyle = particle.color;
-    ctx.fillRect(particle.x - particle.size / 2, particle.y - particle.size / 2, particle.size, particle.size);
+    ctx.fillRect(Math.round(particle.x / PW) * PW, Math.round(particle.y / PW) * PW,
+                 particle.size * PW, particle.size * PW);
   }
   ctx.globalAlpha = 1;
   // damage pops
   for (const pop of S.pops) {
     ctx.globalAlpha = Math.max(0, 1 - pop.t);
-    ctx.fillStyle = pop.color;
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(pop.text, pop.x, pop.y - (FX.reduced ? 0 : pop.t * 26));
+    pxText(pop.text, pop.x, pop.y - (FX.reduced ? 0 : pop.t * 26), pop.color, 'center');
     ctx.globalAlpha = 1;
   }
   ctx.restore();
-  drawWind(S.disp.wind);
+  drawWindPx(S.disp.wind);
+  drawCrt();
+  // HUD overlays above the CRT layer so they stay crisp
+  drawFeed();
+  drawCardFx();
 
   // banner text
   const card = (!S.disp.status || S.disp.status === 'finished') ? null : S.disp.card;
@@ -683,140 +1190,6 @@ function cloud(x, y, s) {
   ctx.arc(x + 20 * s, y + 4 * s, 14 * s, 0, 7);
   ctx.arc(x - 20 * s, y + 5 * s, 12 * s, 0, 7);
   ctx.fill();
-}
-
-function drawWind(wind) {
-  const cx = W / 2, cy = 34;
-  const len = Math.min(70, Math.abs(wind) * 1.1);
-  ctx.strokeStyle = '#1c2333'; ctx.fillStyle = '#1c2333'; ctx.lineWidth = 3;
-  ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(`wind ${Math.abs(wind).toFixed(0)}`, cx, 18);
-  if (len < 4) { ctx.fillText('·', cx, cy + 5); return; }
-  const dir = wind >= 0 ? 1 : -1;
-  ctx.beginPath(); ctx.moveTo(cx - dir * len / 2, cy); ctx.lineTo(cx + dir * len / 2, cy); ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(cx + dir * len / 2, cy);
-  ctx.lineTo(cx + dir * (len / 2 - 8), cy - 5);
-  ctx.lineTo(cx + dir * (len / 2 - 8), cy + 5);
-  ctx.fill();
-}
-
-function drawGorilla(p, color, pid) {
-  const x = p.x, y = p.y;
-  ctx.save();
-  const hit = FX.hits[pid];
-  if (hit && !FX.reduced && p.alive) {
-    const pulse = Math.sin((1 - hit.remaining / hit.total) * Math.PI);
-    ctx.translate(x, y); ctx.scale(1 + pulse * 0.14, 1 - pulse * 0.12); ctx.translate(-x, -y);
-    ctx.shadowColor = '#ffe6a0'; ctx.shadowBlur = 8 * pulse;
-  }
-  if (!p.alive) { ctx.translate(x, y); ctx.rotate(Math.PI / 2); ctx.translate(-x, -y); }
-  // shield bubble
-  if (p.shield && p.shield.active) {
-    ctx.strokeStyle = 'rgba(90,200,255,.9)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(x, y - 15, 26, Math.PI, 0); ctx.stroke();
-    ctx.fillStyle = 'rgba(90,200,255,.15)';
-    ctx.beginPath(); ctx.arc(x, y - 15, 26, Math.PI, 0); ctx.fill();
-  }
-  const throwArm = S.throwing === pid ? -1 : 0;
-  // body
-  ctx.fillStyle = color;
-  roundRect(x - 14, y - 27, 28, 27, 9); ctx.fill();
-  // belly
-  ctx.fillStyle = 'rgba(255,255,255,.28)';
-  ctx.beginPath(); ctx.ellipse(x, y - 12, 8, 9, 0, 0, 7); ctx.fill();
-  // head
-  ctx.fillStyle = color;
-  ctx.beginPath(); ctx.arc(x, y - 32, 10, 0, 7); ctx.fill();
-  // muzzle
-  ctx.fillStyle = 'rgba(255,255,255,.45)';
-  ctx.beginPath(); ctx.ellipse(x, y - 29, 5.5, 4.5, 0, 0, 7); ctx.fill();
-  // eyes
-  ctx.fillStyle = '#1c2333';
-  ctx.beginPath(); ctx.arc(x - 3.5, y - 35, 1.5, 0, 7); ctx.arc(x + 3.5, y - 35, 1.5, 0, 7); ctx.fill();
-  // arms (raised while throwing)
-  ctx.fillStyle = color;
-  roundRect(x - 19, y - 24 + throwArm * 10, 6, 16, 3); ctx.fill();
-  roundRect(x + 13, y - 24 + throwArm * 10, 6, 16, 3); ctx.fill();
-  ctx.restore();
-  // name + hp
-  ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillStyle = '#1c2333';
-  ctx.fillText(`${p.name}  ${Math.round(p.hp)}hp`, x, y - 48);
-  if (p.ammo > 0) ctx.fillText('🍌'.repeat(p.ammo), x, y - 58);
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function drawProjectile() {
-  const pr = S.projectile;
-  const idx = Math.min(pr.traj.length - 1,
-    Math.floor(pr.t * pr.traj.length));
-  const [x, y] = pr.traj[idx];
-  // trail
-  ctx.fillStyle = 'rgba(255,217,74,.35)';
-  for (let i = Math.max(0, idx - 14); i < idx; i += 2) {
-    ctx.beginPath(); ctx.arc(pr.traj[i][0], pr.traj[i][1], 2.4, 0, 7); ctx.fill();
-  }
-  // aim indicator (Worms-style): dotted preview ahead of the banana
-  if (pr.aim && idx < pr.traj.length - 1) {
-    ctx.fillStyle = 'rgba(255,255,255,.5)';
-    for (let i = idx + 4; i < Math.min(pr.traj.length, idx + 26); i += 3) {
-      ctx.beginPath(); ctx.arc(pr.traj[i][0], pr.traj[i][1], 1.7, 0, 7); ctx.fill();
-    }
-    // angle arrow from the launch point, length scales with power
-    const [sx, sy] = pr.traj[0];
-    const rad = -pr.aim.angle * Math.PI / 180; // y-down canvas
-    const len = 24 + pr.aim.power * 0.7;
-    const ex = sx + Math.cos(rad) * len, ey = sy + Math.sin(rad) * len;
-    ctx.strokeStyle = 'rgba(30,30,30,.75)'; ctx.lineWidth = 2.5;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.setLineDash([]);
-    // arrowhead
-    ctx.fillStyle = 'rgba(30,30,30,.75)';
-    ctx.save(); ctx.translate(ex, ey); ctx.rotate(rad);
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-7, 4); ctx.lineTo(-7, -4);
-    ctx.closePath(); ctx.fill(); ctx.restore();
-    // label
-    ctx.font = 'bold 13px system-ui';
-    ctx.fillStyle = 'rgba(30,30,30,.85)';
-    ctx.fillText(Math.round(pr.aim.angle) + '° · ' + Math.round(pr.aim.power),
-                 sx + 8, sy - 34);
-  }
-  // banana
-  const ahead = pr.traj[Math.min(pr.traj.length - 1, idx + 2)];
-  const ang = Math.atan2(ahead[1] - y, ahead[0] - x);
-  ctx.save();
-  ctx.translate(x, y); ctx.rotate(ang);
-  ctx.fillStyle = '#ffd94a';
-  ctx.beginPath(); ctx.ellipse(0, 0, 7, 3.6, 0, 0, 7); ctx.fill();
-  ctx.fillStyle = '#8a5a33';
-  ctx.beginPath(); ctx.arc(6, 0, 1.6, 0, 7); ctx.fill();
-  ctx.restore();
-}
-
-function drawBoom() {
-  const b = S.boom;
-  const k = b.t; // 0..1
-  const ease = 1 - Math.pow(1 - k, 3);
-  const r = b.r * (0.2 + 0.85 * ease);
-  ctx.globalAlpha = 1 - k * 0.85;
-  ctx.fillStyle = '#fff';
-  ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.45 * (1 - k * 0.5), 0, 7); ctx.fill();
-  ctx.strokeStyle = '#ff9029'; ctx.lineWidth = 6 * (1 - k) + 1;
-  ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,217,74,.8)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.75, 0, 7); ctx.stroke();
-  ctx.globalAlpha = 1;
 }
 
 function drawCard(pid, src) {
@@ -890,6 +1263,47 @@ setInterval(() => {
 }, 120);
 
 // ------------------------------------------------------------------ wiring
+// Drag-to-aim: drag anywhere on the canvas. Angle = direction from the drag
+// origin to the cursor (0=right, 90=up), power = drag distance. Read-only:
+// it only previews and stores a draft — the playing agent still fires.
+const cvEl = document.getElementById('cv');
+function canvasPoint(ev) {
+  const r = cvEl.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) * (W / r.width),
+           y: (ev.clientY - r.top) * (H / r.height) };
+}
+function aimFromDrag(p0, p1) {
+  const dx = p1.x - p0.x, dy = p0.y - p1.y;   // screen y-down → game y-up
+  let angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
+  angle = Math.max(0, Math.min(180, angle));
+  const power = Math.max(1, Math.min(100,
+    Math.round(Math.hypot(dx, dy) / 4.2)));
+  return { angle, power };
+}
+cvEl.addEventListener('pointerdown', ev => {
+  if (S.disp.status !== 'active' || S.replaying) return;
+  S.dragging = canvasPoint(ev);
+  cvEl.setPointerCapture(ev.pointerId);
+});
+cvEl.addEventListener('pointermove', ev => {
+  if (!S.dragging) return;
+  const a = aimFromDrag(S.dragging, canvasPoint(ev));
+  S.aimPreview = a;
+});
+function endDrag(ev) {
+  if (!S.dragging) return;
+  S.dragging = null;
+  if (S.aimPreview) S.lastAim = null;  // pending aim takes over the indicator
+  // reflect the drag result in the aim controller sliders (if paired)
+  if (S.aimPreview) {
+    aimEl('aimAngle').value = S.aimPreview.angle;
+    aimEl('aimPower').value = S.aimPreview.power;
+    aimRefresh();
+  }
+}
+cvEl.addEventListener('pointerup', endDrag);
+cvEl.addEventListener('pointercancel', endDrag);
+
 document.addEventListener('click', () => { S.lastUserAction = performance.now(); });
 document.addEventListener('pointerdown', () => { try { audioContext(true); } catch (e) {} }, { passive:true });
 document.getElementById('motion').onclick = () => {
@@ -985,7 +1399,8 @@ document.getElementById('statsBtn').onclick = async () => {
   const b = document.getElementById('statsBtn');
   if (!el.hidden) { el.hidden = true; b.setAttribute('aria-expanded','false'); return; }
   try {
-    const r = await fetch((AB || location.origin) + '/api/stats');
+    const r = await fetch((AB || location.origin) + '/api/stats',
+                          {headers: {'ngrok-skip-browser-warning': '1'}});
     const d = await r.json();
     const rows = (d.standings || []).map(x =>
       `<tr><td>${x.name}</td><td style="text-align:right">${x.wins}</td>` +
@@ -1046,14 +1461,16 @@ async function initMatch() {
       if (m.match_id === S.matchId) o.selected = true;
       sel.appendChild(o);
     }
-    sel.onchange = () => location.href = '/?match=' + sel.value;
+    sel.onchange = () => location.href = location.pathname + '?match=' + sel.value;
   }
   poll();
 }
 function startStream() {
   // Live updates via SSE; the 600ms poll stays as fallback and slows to 5s
-  // while the stream is healthy.
-  if (!window.EventSource || !S.matchId || S.es) return;
+  // while the stream is healthy. Off-origin API bases (GitHub Pages viewer
+  // behind the public tunnel) stay on polling: the tunnel proxies but the
+  // EventSource cannot carry the skip header ngrok needs.
+  if (AB || !window.EventSource || !S.matchId || S.es) return;
   try {
     const es = new EventSource(location.origin + '/api/match/' + S.matchId +
                                '/stream?since=' + (S.obs ? S.obs.version : 0));
