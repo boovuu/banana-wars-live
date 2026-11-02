@@ -732,10 +732,10 @@ function drawGorilla(p, color, pid) {
     ctx.translate(x, y); ctx.scale(1 + pulse * 0.14, 1 - pulse * 0.12); ctx.translate(-x, -y);
   }
   if (!p.alive) { ctx.translate(x, y); ctx.rotate(Math.PI / 2); ctx.translate(-x, -y); }
-  // shield: dithered pixel dome
+  // shield: dithered pixel dome — sized to bubble the whole chibi body
   if (p.shield && p.shield.active) {
     const rows = [];
-    const R = 8;
+    const R = 12;
     for (let r = 0; r < R; r++) {
       let line = '';
       for (let c = -R; c <= R; c++) {
@@ -744,11 +744,11 @@ function drawGorilla(p, color, pid) {
       }
       rows.push(line);
     }
-    ctx.drawImage(makeSpriteCache(rows, 'S'), x - R * PW, y - 15 - R * PW);
+    ctx.drawImage(makeSpriteCache(rows, 'S'), x - R * PW, y - 14 - R * PW);
   }
   // sprite: feet at the bottom row, anchored to (x, y); p1 faces right, p2 left
-  // drawn at 1.5x: big enough to read the face, small enough to stay in bounds
-  const GS = 1.5;
+  // drawn at 1x: chibi proportions, ~64px tall — a fighter, not a kaiju
+  const GS = 1;
   const facing = pid === 'p1' ? 1 : -1;
   const sp = gorillaSprite(pid);
   ctx.save();
@@ -772,54 +772,46 @@ function gorillaSprite(pid) {
   const c = pcolor(pid);
   const dark = pid === 'p1' ? '#a33f2e' : '#4f61ad';
   const pal = { B: c, D: dark, K: '#1e1410', F: '#f5d7b9',
-                W: '#ffffff', E: '#191419', M: '#aa3c32' };
-  // B=body D=dark K=outline F=face-plate W=eye-white E=pupil M=muzzle/nostrils
-  // v7 BOLD anatomy: big head, thick brow, 2x2 eyes, muzzle plate — survives
-  // scanlines and small scale (previous thin features read as one eye)
+                W: '#ffffff', E: '#191419', M: '#5a3228' };
+  // B=body D=dark K=outline F=face/belly W=eye-glint E=eyes M=nostrils/smile
+  // v9 CHIBI anatomy (16x16): compact body, soft brow, dark eyes with a white
+  // glint, nostrils + smile — cute at small scale, still reads under scanlines
   const idle = [
-    '.....KKBBBBBBBBBBKK.....',
-    '.....KBBBBBBBBBBBBK.....',
-    '.....KBDDDDDDDDDDBK.....',
-    '.....KBBWWBBBBWWBBK.....',
-    '.....KBBEEBDDBEEBBK.....',
-    '.....KBBBBFFFFBBBBK.....',
-    '.....KBBBBFMMFBBBBK.....',
-    '..KKKKKKKBBBBBBKKKKKKK..',
-    '.KKBBBBBBBBBBBBBBBBBBKK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KKKKBBBBBBKKBBBBBBKKKK.',
-    '....KBBBBBBKKBBBBBBK....',
-    '...KKBBBBBBKKBBBBBBKK...',
-    '...KDDDDDDDKKDDDDDDDK...',
+    '.....KKKKKK.....',
+    '..KKBBBBBBBBKK..',
+    '.KKBDDBBBBDDBKK.',
+    'KDKBEWBBBBWEBKDK',
+    '.KKBEEBBBBEEBKK.',
+    '..KBEEBBBBEEBK..',
+    '..KBBFMFFMFBBK..',
+    '..KBBFFFFFFBBK..',
+    '...KFFMMMMFFK...',
+    '....KBBBBBBK....',
+    '.KDDKBFFFFBKDDK.',
+    '.KDDKBFFFFBKDDK.',
+    '.KDDKBFFFFBKDDK.',
+    '..KKKBBBBBBKKK..',
+    '...KDDK..KDDK...',
+    '...KDDK..KDDK...',
   ];
-  // throw pose: fists raised high at the sides
+  // throw pose: fists raised beside the head
   const armsUp = [
-    'KDDDK..............KDDDK',
-    'KDDDK.KKKKKKKKKKKK.KDDDK',
-    'KKKKKKKBBBBBBBBBBKKKKKKK',
-    'KKKKKKBBBBBBBBBBBBKKKKKK',
-    'KDDDKKBDDDDDDDDDDBKKDDDK',
-    'KDDDKKBBWWBBBBWWBBKKDDDK',
-    'KDDDKKBBEEBBBBEEBBKKDDDK',
-    'KKKKKKBBBBFFFFBBBBKKKKKK',
-    '..KKKKBBBBBMMBBBBBKKKK..',
-    '.KKBBBBBBBBBBBBBBBBBBKK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KDDDBBBBBBBBBBBBBBDDDK.',
-    '.KKKKBBBBBBKKBBBBBBKKKK.',
-    '....KBBBBBBKKBBBBBBK....',
-    '...KKBBBBBBKKBBBBBBKK...',
-    '...KDDDDDDDKKDDDDDDDK...',
+    'KDK..KKKKKK..KDK',
+    'KDDKBBBBBBBBKDDK',
+    'KDDBDDBBBBDDBDDK',
+    'KDKBEWBBBBWEBKDK',
+    'KDKBEEBBBBEEBKDK',
+    'KDKBEEBBBBEEBKDK',
+    'KDKBBFMFFMFBBKDK',
+    'KDKBBFFFFFFBBKDK',
+    'KDDKFFMMMMFFKDDK',
+    '....KBBBBBBK....',
+    '....KBFFFFBK....',
+    '....KBFFFFBK....',
+    '....KBFFFFBK....',
+    '....KBBBBBBK....',
+    '...KDDK..KDDK...',
+    '...KDDK..KDDK...',
   ];
   return (GOR_CACHE[key] = makeSprite(throwing ? armsUp : idle, pal));
 }
