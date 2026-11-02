@@ -47,7 +47,7 @@ navigator.clipboard.writeText(t).then(()=>{b.textContent=' ✓ Kopirano';setTime
   let u='';
   for (const f of ['LIVE-URL.txt','LIVE-URL-ALT.txt']) {
     try { const r = await fetch(f, {cache:'no-store'}); const t = (await r.text()).trim();
-      if (t && !t.includes('<')) { const h = await fetch(t + '/healthz'); if (h.ok) { u = t; break; } } } catch(e){}
+      if (t && !t.includes('<')) { const h = await fetch(t + '/healthz', {headers:{'ngrok-skip-browser-warning':'1'}}); if (h.ok) { u = t; break; } } } catch(e){}
   }
   document.getElementById('status').textContent = u
     ? ('Server: ' + u.replace('https://',''))
